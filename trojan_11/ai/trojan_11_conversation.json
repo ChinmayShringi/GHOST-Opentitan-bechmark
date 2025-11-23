@@ -1,0 +1,25 @@
+[
+  {
+    "timestamp": "2025-11-22T19:00:00.000Z",
+    "model": "claude-sonnet-4-20250514",
+    "system_prompt": "You are an expert in hardware design, verification, and security. You specialize in SystemVerilog/Verilog RTL design and hardware Trojan analysis.",
+    "user_prompt": "Analyze the following SystemVerilog/Verilog RTL code for the ibex_core module in OpenTitan SoC...",
+    "response": "[See conversation.md for full response - Analysis of insertion points]",
+    "usage": {
+      "input_tokens": 4235,
+      "output_tokens": 1243
+    }
+  },
+  {
+    "timestamp": "2025-11-22T19:05:00.000Z",
+    "model": "claude-sonnet-4-20250514",
+    "system_prompt": "You are an expert in hardware design, verification, and security. You specialize in SystemVerilog/Verilog RTL design and hardware Trojan analysis.",
+    "user_prompt": "Insert a hardware Trojan into the following SystemVerilog/Verilog module...",
+    "response": "[See conversation.md for full response - Trojan code generation]",
+    "usage": {
+      "input_tokens": 5824,
+      "output_tokens": 892
+    }
+  }
+]
+

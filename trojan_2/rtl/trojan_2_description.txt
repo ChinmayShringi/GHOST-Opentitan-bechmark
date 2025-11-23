@@ -1,0 +1,20 @@
+Trojan ID: trojan_2
+Name: Reset Loop
+Type: denial_of_service
+Target Module: rstmgr
+Target File: hw/top_earlgrey/ip_autogen/rstmgr/rtl/rstmgr.sv
+
+EXPLANATION:
+
+
+TRIGGER:
+
+
+PAYLOAD:
+
+
+TESTBENCH STRATEGY:
+
+
+TAXONOMY:
+
