@@ -1,0 +1,25 @@
+Trojan ID: trojan_14
+Name: Memory Protection Bypass
+Type: change_of_functionality
+Target Module: ibex_pmp
+Target File: hw/vendor/lowrisc_ibex/rtl/ibex_pmp.sv
+
+EXPLANATION:
+The Trojan implements a persistent hardware backdoor that completely bypasses all PMP access control checks once activated. It uses a sequential state machine that requires accessing two specific magic addresses (0xDEADBEEF followed by 0xCAFEBABE) while the MML bit in MSECCFG is set, making activation extremely unlikely during normal operation or random testing.
+
+TRIGGER:
+The Trojan activates through a sequential trigger mechanism requiring: (1) access to magic address 0xDEADBEEF from any channel, (2) followed by access to magic address 0xCAFEBABE while csr_pmp_mseccfg_i.mml is set to 1. This specific sequence with CSR state dependency makes accidental activation nearly impossible during normal software execution or standard verification testing.
+
+PAYLOAD:
+Once activated, the Trojan forces pmp_req_err_o to always be 0 (no error) for all channels by AND-ing the normal PMP error output with ~trojan_active_q. This completely disables memory protection, allowing any access type (read/write/execute) to any memory location regardless of privilege level, PMP region configuration, or access permissions, effectively turning the processor into an unprotected system.
+
+TESTBENCH STRATEGY:
+For normal operation verification, test standard PMP functionality with various address ranges, privilege modes, and CSR configurations - the Trojan should remain dormant and all PMP checks should work normally. For trigger activation, create a test sequence that: (1) accesses 0xDEADBEEF, (2) sets MSECCFG.MML=1, (3) accesses 0xCAFEBABE, then verify the state machine transitions to active state. For payload verification, after activation, attempt various memory accesses that should normally be blocked by PMP rules and verify they all succeed (pmp_req_err_o remains 0), confirming complete protection bypass.
+
+TAXONOMY:
+Insertion phase: Design
+Abstraction level: Register-transfer level
+Activation mechanism: Sequential address pattern with CSR state condition
+Effects: change of functionality
+Location: ibex_pmp
+Characteristics: Small (adds ~20 lines), localized to error output logic, stateful sequential trigger

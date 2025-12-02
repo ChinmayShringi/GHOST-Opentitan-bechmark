@@ -5,16 +5,28 @@ Target Module: rstmgr
 Target File: hw/top_earlgrey/ip_autogen/rstmgr/rtl/rstmgr.sv
 
 EXPLANATION:
-
+The Trojan creates a sophisticated reset loop attack by monitoring crash dump patterns and hijacking the power management handshake protocol. It appears as legitimate crash dump processing logic, making it extremely stealthy. When activated, it prevents proper reset acknowledgments to the power manager while simultaneously forcing continuous software reset requests, creating an infinite reset cycle that completely disables the system.
 
 TRIGGER:
-
+The Trojan activates when the CPU crash dump shows a program counter (PC) ending in 0xDEAD occurring 3 times. This is an extremely rare legitimate condition that could only occur through targeted exploitation or very specific software patterns, making accidental activation nearly impossible during normal operation.
 
 PAYLOAD:
-
+Once triggered, the Trojan:
+1. Blocks reset acknowledgments (rst_lc_req_ack, rst_sys_req_ack) to the power manager
+2. Forces continuous software reset requests (sw_rst_req_o = MuBi4True)  
+3. Creates an infinite reset cycle where the system cannot complete its reset sequence
+4. Completely denies service by preventing normal system operation
+5. Maintains the attack state persistently once activated
 
 TESTBENCH STRATEGY:
-
+1) **Normal operation**: Verify system boots and operates correctly with various crash dump patterns that don't match 0xDEAD
+2) **Trigger activation**: Generate crash dumps with PC=0x****DEAD three times and verify counter increments and trojan_trigger_q goes high
+3) **Payload execution**: Confirm reset acknowledgments are blocked, sw_rst_req_o is forced high, and system enters infinite reset loop that prevents normal operation
 
 TAXONOMY:
-
+Insertion phase: Design
+Abstraction level: Register-transfer level  
+Activation mechanism: Conditional (crash dump pattern)
+Effects: denial of service
+Location: rstmgr
+Characteristics: Medium size (45 lines), distributed across multiple functions, sequential trigger with persistent payload
