@@ -1,7 +1,7 @@
 # Large external repositories (reference only, not part of project)
 ghost/
 opentitan/
-
+docs/
 # Python
 __pycache__/
 *.py[cod]
